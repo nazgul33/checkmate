@@ -1,7 +1,5 @@
 var needle = require('needle');
-var jsdom = require('jsdom');
-
-var subscribers_html = '';
+var cheerio = require('cheerio')
 
 var subscribers_impalad = [];
 var subscribers_catalogd = [];
@@ -14,8 +12,7 @@ String.prototype.startsWith = function(s)
 
 var cb_impalad, cb_catalogd;
 
-var parse_subscribers = function(err, window) {
-    var $ = window.jQuery;
+var parse_subscribers = function($) {
     var table = $('table')
     var th = $(table).find('th');
     var col_id, col_addr;
@@ -51,21 +48,13 @@ var parse_subscribers = function(err, window) {
     if (cb_catalogd) cb_catalogd(subscribers_catalogd);
     // console.log( subscribers_impalad );
     // console.log( subscribers_catalogd );
-
-    window.close();
-    global.gc();
 }
 
 var update_subscribers = function(url) {
     // console.log('updating subscribers from', url);
     needle.get(url, function (error, response) {
         if (!error && response.statusCode == 200) {
-            subscribers_html = response.body;
-            jsdom.env({
-                html: subscribers_html,
-                scripts: ['./jquery-1.11.1.min.js'],
-                done: parse_subscribers
-            });
+            parse_subscribers( cheerio.load(response.body) );
         }
     });
 }

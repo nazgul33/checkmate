@@ -14,6 +14,8 @@ var assetManagerGroups = {
             'js/jquery-1.11.1.min.js',
             'bootstrap/js/bootstrap.min.js',
             'bootstrap/js/bootstrap-select.min.js',
+            'js/string.js',
+            'js/utils.js',
         ]
     },
     'iphc.css': {

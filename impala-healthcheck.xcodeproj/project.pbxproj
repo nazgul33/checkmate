@@ -6,10 +6,17 @@
 	objectVersion = 46;
 	objects = {
 
+/* Begin PBXFileReference section */
+		9277F66D19FE1A660059D070 /* run.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = run.js; sourceTree = "<group>"; };
+		9277F66E19FE1AD20059D070 /* statestored.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = statestored.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
 /* Begin PBXGroup section */
 		9277F66619FE1A370059D070 = {
 			isa = PBXGroup;
 			children = (
+				9277F66E19FE1AD20059D070 /* statestored.js */,
+				9277F66D19FE1A660059D070 /* run.js */,
 			);
 			sourceTree = "<group>";
 		};

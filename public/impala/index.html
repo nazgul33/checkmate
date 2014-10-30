@@ -5,35 +5,64 @@
     <style type="text/css">
     @import '/static/css/iphc.css';
     </style>
-
     <script src="/static/js/iphc.js"></script>
 </head>
-<body>
-    <H1>Servers</H1>
-    <div id="impala_servers">
-    </div>
-
-    <H1>queries</H1>
-    <div id="impala_queries">
-    </div>
-</body>
 
 <script type="text/javascript">
 function loadServers() {
-    $.getJSON("/api/v1/impala/impalad_status", function(result) {
-        if (result.status == "ok") {
-            var table = "<table class=\"info_table\">\n<tr><th>Server</th><th>last active</th><th>active since</th></tr>\n";
+    $.getJSON('/api/v1/impala/impalad_status', function(result) {
+        if (result.status == 'ok') {
+            var table = '<table class="table table-striped" width="80%">\n<tr><th>Server</th><th>Last Active</th><th>Active Since</th></tr>\n';
             for (server in result.value) {
-                table += "<tr><td>" + server + "</td><td>" + result.value[server].updated + "</td><td>" + result.value[server].first_seen + "</td></tr>\n";
+                var last_update = new Date(result.value[server].updated);
+                var first_seen = new Date(result.value[server].first_seen);
+                table += '<tr><td>' + server + '</td><td>' + formatDate(last_update) + '</td><td>' + formatDate(first_seen) + '</td></tr>\n';
             }
-            table += "</table>";
+            table += '</table>';
             $('#impala_servers').html(table);
         }
     });
 }
 
-$(function() {
+function loadQueries() {
+    $.getJSON('/api/v1/impala/impalad_queries', function(result) {
+        if (result.status == 'ok') {
+            var tNow = new Date();
+            var table = '<table class="table table-striped" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
+            for (var q_id in result.value) {
+                var q = result.value[q_id];
+                var st = new Date(q.start_time);
+                var timespent_ms = tNow - st;
+                var tr_class = (q.stall == true)? ' class="stall"':'';
+                table += '<tr' + tr_class + '><td>' + q.server + '</td><td>' + q.user + '</td><td>' + q.statement + '</td><td>' + q.backend_progress + '</td><td>' + formatDate(st) + '</td><td>' + timespent_ms + '</td></tr>\n';
+            }
+            table += '</table>';
+            $('#impala_queries').html(table);
+        }
+    });
+}
+
+function refreshAll() {
+    loadQueries();
     loadServers();
+}
+
+var reload_timer;
+$(function() {
+    refreshAll();
+    reload_timer = setInterval(refreshAll, 10000);
 });
+
 </script>
+
+<body>
+    <H1>queries</H1>
+    <div id="impala_queries" align="center">
+    </div>
+
+    <H1>Servers</H1>
+    <div id="impala_servers" align="center">
+    </div>
+</body>
+
 </html>
