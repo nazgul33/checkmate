@@ -9,10 +9,16 @@
 </head>
 
 <script type="text/javascript">
+var g_running_queries = [];
+var g_impalad_servers = [];
+var g_clusters = [];
+var g_current_cluster = '';
+
 function loadServers() {
-    $.getJSON('/api/v1/impala/impalad_status', function(result) {
+    $.getJSON('/api/v1/impala/impalad_status?cluster='+g_current_cluster, function(result) {
         if (result.status == 'ok') {
             var table = '<table class="table table-striped" width="80%">\n<tr><th>Server</th><th>Last Active</th><th>Active Since</th></tr>\n';
+            g_impalad_servers = result.value;
             for (server in result.value) {
                 var last_update = new Date(result.value[server].updated);
                 var first_seen = new Date(result.value[server].first_seen);
@@ -25,10 +31,11 @@ function loadServers() {
 }
 
 function loadQueries() {
-    $.getJSON('/api/v1/impala/impalad_queries', function(result) {
+    $.getJSON('/api/v1/impala/running_queries?cluster='+g_current_cluster, function(result) {
         if (result.status == 'ok') {
             var tNow = new Date();
             var table = '<table class="table table-striped" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
+            g_running_queries = result.value;
             for (var q_id in result.value) {
                 var q = result.value[q_id];
                 var st = new Date(q.start_time);
@@ -42,25 +49,47 @@ function loadQueries() {
     });
 }
 
-function refreshAll() {
-    loadQueries();
-    loadServers();
+function loadClusters() {
+    $.getJSON('/api/v1/impala/clusters', function(result) {
+        if (result.status == 'ok') {
+            var links = '';
+            g_clusters = result.value;
+            for (var i=0; i<g_clusters.length; i++) {
+                var c = g_clusters[i];
+                links += '<button onclick="startRefreshTimer(\'' + c + '\')">' + c +'</button>&nbsp;';
+            }
+            $('#clusters').html(links);
+
+        }
+    });
 }
 
-var reload_timer;
+var reload_timer = null;
+function startRefreshTimer(cluster_name) {
+    if (reload_timer) {
+        clearInterval(reload_timer);
+        reload_timer = null;
+    }
+    g_current_cluster = cluster_name;
+    setTimeout(loadQueries(), 0);
+    reload_timer = setInterval(loadQueries(), 5000);
+}
+
 $(function() {
-    refreshAll();
-    reload_timer = setInterval(refreshAll, 10000);
+    loadClusters();
 });
 
 </script>
 
 <body>
+    <H1>clusters</H1>
+    <div id="clusters"></div>
+
     <H1>queries</H1>
     <div id="impala_queries" align="center">
     </div>
 
-    <H1>Servers</H1>
+    <H1>servers</H1>
     <div id="impala_servers" align="center">
     </div>
 </body>

@@ -1,12 +1,30 @@
-var impalad = require('./impalad.js');
-var statestored = require('./statestored.js');
+var impala = require('./impalad.js');
 var webserver = require('./webserver.js');
 
-statestored.update_subscribers_url('http://dicc-tm003:25010/subscribers');
-// statestored.update_subscribers_url('http://dicc-m004:25010/subscribers');
-impalad.update_server_port(25000);
+impala_cluster_descriptions = {
+    test: {
+        statestored_hostname:"dicc-tm003",
+        statestored_web_port:25010,
+        subscribers_update_interval:10000,
+        impalad_web_port:25000,
+        impalad_update_interval:5000 },
+    daas: {
+        statestored_hostname:"dicc-m003",
+        statestored_web_port:25010,
+        subscribers_update_interval:10000,
+        impalad_web_port:25000,
+        impalad_update_interval:5000 },
+    eda: {
+        statestored_hostname:"dicc-m002",
+        statestored_web_port:25010,
+        subscribers_update_interval:10000,
+        impalad_web_port:25000,
+        impalad_update_interval:5000 },
+};
 
-statestored.init( impalad.update_server_list );
-impalad.init();
+impala_cluster_descriptions = {
+};
 
-webserver.init(25090);
+impala.init( impala_cluster_descriptions );
+
+webserver.init(8080);
