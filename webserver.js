@@ -52,7 +52,8 @@ var serveStatic = require('serve-static');
 var bodyParser = require('body-parser');
 var connectTimeout = require('connect-timeout');
 var cookieParser = require('cookie-parser');
-var ModuleImpala = require('./webserver_impala.js');
+var ModuleCluster = require('./webserver_cluster.js');
+var Qs = require('qs');
 //var qs = require('qs');
 //var serve_favicon = require('serve-favicon');
 
@@ -67,13 +68,22 @@ var app = Connect()
 .use(connectTimeout(1000*10))
 .use(bodyParser.json())
 .use(cookieParser())
+.use(function(req, res, next) {
+    if (!req.query) {
+        var qi = req.url.indexOf('?');
+        req.query = qi>=0? Qs.parse(req.url.substring(qi+1)):{};
+    }
+    next();
+})
 .use(function(req, res) {
+
     var spec = null;
     try{
         spec = URL.parse(req.url);
         var path = (spec.pathname || '/').split('/');
         if (path && path.length > 0) path.shift();
 
+        // if method is post, request body's json object will be added to req.query
         req.query = Utils.extend({}, true, req.query || {}, req.body || {});
 
         res.setHeader('Content-Type', 'application/json');
@@ -85,8 +95,8 @@ var app = Connect()
         }
         var p = path.slice(3);
         switch (path[2]) {
-            case 'impala':
-                ModuleImpala.pass(p, req, res);
+            case 'cluster':
+                ModuleCluster.pass(p, req, res);
                 break;
             default:
                 res.end('{"type":"error", "msg":"api path error (unknown module ' + path[2] + ')"}');

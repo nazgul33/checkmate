@@ -10,47 +10,60 @@
 
 <script type="text/javascript">
 var g_running_queries = [];
-var g_impalad_servers = [];
+var g_servers = [];
 var g_clusters = [];
 var g_current_cluster = '';
 
 function loadServers() {
     $.getJSON('/api/v1/impala/impalad_status?cluster='+g_current_cluster, function(result) {
         if (result.status == 'ok') {
-            var table = '<table class="table table-striped" width="80%">\n<tr><th>Server</th><th>Last Active</th><th>Active Since</th></tr>\n';
-            g_impalad_servers = result.value;
-            for (server in result.value) {
-                var last_update = new Date(result.value[server].updated);
-                var first_seen = new Date(result.value[server].first_seen);
-                table += '<tr><td>' + server + '</td><td>' + formatDate(last_update) + '</td><td>' + formatDate(first_seen) + '</td></tr>\n';
-            }
-            table += '</table>';
-            $('#impala_servers').html(table);
         }
     });
 }
 
-function loadQueries() {
-    $.getJSON('/api/v1/impala/running_queries?cluster='+g_current_cluster, function(result) {
+function showRunningQueries() {
+    var tNow = new Date();
+    var table = '<table class="table table-striped" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
+
+    for (var i=0; i<g_running_queries.length; i++) {
+        var q = g_running_queries[i];
+        var st = new Date(q.start_time);
+        var timespent_ms = tNow - st;
+        var tr_class = (q.stall == true)? ' class="stall"':'';
+        table += '<tr' + tr_class + '><td>' + q.server_name + '</td><td>' + q.user + '</td><td>' + q.statement + '</td><td>' + q.backend_progress + '</td><td>' + formatDate(st) + '</td><td>' + timespent_ms + '</td></tr>\n';
+    }
+    table += '</table>';
+    $('#impala_queries').html(table);
+}
+
+function showServers() {
+    var table = '<table class="table table-striped" width="80%">\n<tr><th>Server</th><th>Status</th></tr>\n';
+    for (var i=0; i<g_servers.length; i++) {
+        table += '<tr><td>' + g_servers[i].server_name + '</td><td>' + g_servers[i].server_state + '</td></tr>\n';
+    }
+    table += '</table>';
+    $('#impala_servers').html(table);
+}
+
+function loadCluster() {
+    $.getJSON('/api/v1/cluster/cluster?cluster='+g_current_cluster, function(result) {
         if (result.status == 'ok') {
-            var tNow = new Date();
-            var table = '<table class="table table-striped" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
-            g_running_queries = result.value;
-            for (var q_id in result.value) {
-                var q = result.value[q_id];
-                var st = new Date(q.start_time);
-                var timespent_ms = tNow - st;
-                var tr_class = (q.stall == true)? ' class="stall"':'';
-                table += '<tr' + tr_class + '><td>' + q.server + '</td><td>' + q.user + '</td><td>' + q.statement + '</td><td>' + q.backend_progress + '</td><td>' + formatDate(st) + '</td><td>' + timespent_ms + '</td></tr>\n';
-            }
-            table += '</table>';
-            $('#impala_queries').html(table);
+            var cluster = result.value;
+            g_running_queries = cluster.running_queries;
+            g_servers = cluster.servers;
+
+            // sort arrays
+            g_running_queries.sort( function(a,b) { return a.start_time - b.start_time; } );
+            g_servers.sort( function(a,b) { return (a.server_name < b.server_name)? -1: ((a.server_name == b.server_name)? 0:1 ) } );
+
+            showRunningQueries();
+            showServers();
         }
     });
 }
 
 function loadClusters() {
-    $.getJSON('/api/v1/impala/clusters', function(result) {
+    $.getJSON('/api/v1/cluster/cluster_names', function(result) {
         if (result.status == 'ok') {
             var links = '';
             g_clusters = result.value;
@@ -71,8 +84,8 @@ function startRefreshTimer(cluster_name) {
         reload_timer = null;
     }
     g_current_cluster = cluster_name;
-    setTimeout(loadQueries(), 0);
-    reload_timer = setInterval(loadQueries(), 5000);
+    setTimeout(loadCluster(), 0);
+    reload_timer = setInterval(loadCluster(), 5000);
 }
 
 $(function() {

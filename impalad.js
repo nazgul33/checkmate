@@ -2,6 +2,9 @@ var needle = require('needle');
 var cheerio = require('cheerio')
 var url = require('url');
 var moment = require('moment');
+var datahub = require('./datahub.js');
+
+var datahub_client;
 
 String.prototype.startsWith = function(s)
 {
@@ -140,6 +143,39 @@ ImpalaCluster.prototype.finishUpdatingImpalad = function () {
         }
     }
 
+    var cluster = { 'name': this.cluster_name }
+    var running_queries = [];
+    var serverlist = [];
+    for ( var server_name in this.impalad_servers ) {
+        var server = this.impalad_servers[server_name];
+        for ( var query_id in server.running_queries ) {
+            var q = server.running_queries[query_id];
+            running_queries.push({
+                user: q.user,
+                default_db: q.default_db,
+                statement: q.statement,
+                query_type: q.query_type,
+                start_time: q.start_time,
+                backend_progress: q.backend_progress,
+                state: q.state,
+                n_rows_fetched: q.n_rows_fetched,
+                query_id: q.query_id,
+                last_update: q.last_update,
+                stall: q.stall,
+
+                server_name: q.server.server_name,
+                server_port: q.server.web_port,
+                server_state: q.server.state,
+            });
+        }
+        serverlist.push({
+            'server_name': server.server_name,
+            'server_state': server.state
+        });
+    }
+    cluster['cluster'] = { 'running_queries': running_queries, 'servers': serverlist };
+
+    datahub_client.send( {'type':'cluster', 'value':cluster } );
     // console.log('cluster ' + this.cluster_name + ' updated.')
 }
 
@@ -185,7 +221,7 @@ ImpalaCluster.prototype.updateImpaladList = function(new_impalad_list) {
             impalad = this.impalad_servers[server_name];
             impalad.updated = now;
             if (impalad.state != 'online') {
-                console.log(this.cluster_name + ': impalad "' + server_name + '" online');
+                // console.log(this.cluster_name + ': impalad "' + server_name + '" online');
                 impalad.state = 'online';
             }
         }
@@ -193,7 +229,7 @@ ImpalaCluster.prototype.updateImpaladList = function(new_impalad_list) {
             need_update = true;
             impalad =  new ImpaladServer( this, server_name, this.cluster_options.impalad_web_port, now );
             this.impalad_servers[server_name] = impalad;
-            console.log(this.cluster_name + ': impalad "' + server_name + '" added');
+            // console.log(this.cluster_name + ': impalad "' + server_name + '" added');
         }
     }
 
@@ -286,6 +322,7 @@ ImpalaCluster.prototype.startUpdating = function() {
 var impala_clusters = {};
 
 exports.init = function(cluster_descriptions) {
+    datahub_client = new datahub.client('impalas');
     for ( var cluster_name in cluster_descriptions ) {
         var cluster = new ImpalaCluster(cluster_name, cluster_descriptions[cluster_name]);
         impala_clusters[cluster_name] = cluster;
@@ -294,16 +331,7 @@ exports.init = function(cluster_descriptions) {
     }
 }
 
+
 exports.get_clusters = function() {
     return impala_clusters;
 }
-
-/*
-test_cluster_descriptions = { test: { statestored_hostname:"dicc-tm003",
-                                statestored_web_port:25010,
-                                subscribers_update_interval:10000,
-                                impalad_web_port:25000,
-                                impalad_update_interval:5000 },
-                        };
-exports.init( test_cluster_descriptions );
-*/
