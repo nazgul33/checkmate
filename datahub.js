@@ -119,14 +119,49 @@ function ClientConnection() {
             break;
         case 'cluster':
             if (obj.value.name && obj.value.cluster) {
-                clusters[obj.value.name] = obj.value.cluster;
+                if (obj.value.name in clusters) {
+                    var cq = clusters[obj.value.name].completed_queries;
+                    clusters[obj.value.name] = obj.value.cluster;
+                    clusters[obj.value.name].completed_queries = cq;
+                }
+                else {
+                    clusters[obj.value.name] = obj.value.cluster;
+                    clusters[obj.value.name].completed_queries = [];
+                }
 
-                var cn=obj.value.name;
-                var cl=obj.value.cluster;
+                // var cn=obj.value.name;
+                // var cl=obj.value.cluster;
                 // console.log('client ' + clientName + 'updated cluster ' + cn);
                 // console.log('  ' + cl.running_queries.length + ' running queries');
                 // console.log('  ' + cl.servers.length + ' known servers');
+
+                // TODO: logging of stalled queries
             }
+            break;
+        case 'completed_queries':
+            if (obj.value.cluster in clusters) {
+                // TODO: logging of completed queries
+                var c = clusters[obj.value.cluster];
+                var cq = c.completed_queries || [];
+                var cq_retired = [];
+                var cqs_org = cq.length;
+                cq = cq.concat(obj.value.completed_queries);
+
+                // sort by start_time / descending order
+                cq.sort( function(a, b) { return b.start_time - a.start_time; } );
+                if (cq.length > 100) {
+                    cq_retired = cq.splice(100, cq.length-100);
+                }
+                c.completed_queries = cq; // because of concat(), cq is a different array obj
+
+                console.log('rcv_cq() c:' + obj.value.cluster + ' o:' + cqs_org
+                 + ' +:' + obj.value.completed_queries.length
+                 + ' -:' + cq_retired.length
+                 + ' s:' + cq.length);
+            }
+            break;
+        default:
+            console.log('BUG! unknown datahub client cmd', obj.type);
             break;
         }
     };

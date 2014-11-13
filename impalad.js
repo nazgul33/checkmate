@@ -32,6 +32,22 @@ function ImpalaRunningQuery(server, user, default_db, statement, query_type, sta
     this.stall = false;
 }
 
+function ImpalaCompletedQuery(server, user, default_db, statement, query_type, start_time, end_time, backend_progress, state, n_rows_fetched, query_id) {
+    this.user = user;
+    this.default_db = default_db;
+    this.statement = statement;
+    this.query_type = query_type;
+    this.start_time = start_time; // epoch milisec
+    this.end_time = end_time;
+    this.state = state;
+    this.n_rows_fetched = n_rows_fetched;
+    this.query_id = query_id;
+
+    this.server = server; // an instance of ImpalaServer
+
+    this.summary = null;
+}
+
 function ImpaladServer(cluster, name, port, timestamp) {
     this.cluster = cluster;
 
@@ -39,9 +55,14 @@ function ImpaladServer(cluster, name, port, timestamp) {
     this.web_port = port;
 
     this.running_queries = {};
+    this.completed_queries = {};
+    this.completed_queries_new = [];
+    this.completed_queries_updating = [];
 
     this.updated = this.first_seen = timestamp;
     this.state = 'online';
+
+    this.completed_queries_update_timer = null;
 }
 
 /*
@@ -69,6 +90,8 @@ function ImpalaCluster(name, options) {
 
     this.statestored_state = 'offline';
     this.statestored_update_timer = null;
+
+    this.impalad_update_start_time = null;
 }
 
 ImpaladServer.prototype.getRunningQueryFromTr = function($, tr) {
@@ -102,7 +125,7 @@ ImpaladServer.prototype.getRunningQueriesFromHtml = function($) {
         var query_id = running_query.query_id;
         running_query.check = true;
         running_query.last_update = now;
-        if ( server.running_queries[query_id] ) {
+        if ( query_id in server.running_queries ) {
             console.log( 'existing query', query_id );
             if ( (server.running_queries[query_id].backend_progress == running_query.backend_progress) &&
                 (server.running_queries[query_id].n_rows_fetched == running_query.n_rows_fetched) ) {
@@ -115,6 +138,174 @@ ImpaladServer.prototype.getRunningQueriesFromHtml = function($) {
             console.log( 'new query', query_id );
         }
         server.running_queries[query_id] = running_query;
+    });
+}
+
+ImpaladServer.prototype.getExecutionSummaryFromHtml = function(q, $) {
+    var impala_version = this.cluster.cluster_options.impala_version;
+    switch(impala_version) {
+    case '2.0.0':
+    {
+        q.summary = $($('.container pre')[1]).text();
+        break;
+    }
+    case '1.4.1':
+    {
+        q.summary = $($('.container pre')[0]).text();
+        break;
+    }
+    }
+}
+
+ImpaladServer.prototype.getCompletedQueryFromTr = function($, tr) {
+    var td = $(tr).find('td');
+
+    if ( td.length < 10 ) {
+        return null;
+    }
+
+    return new ImpalaCompletedQuery( this,
+                                    $(td[0]).text(),
+                                    $(td[1]).text(),
+                                    $(td[2]).text(),
+                                    $(td[3]).text(),
+                                    moment($(td[4]).text()).valueOf(),
+                                    moment($(td[5]).text()).valueOf(),
+                                    $(td[6]).text(),
+                                    $(td[7]).text(),
+                                    $(td[8]).text(),
+                                    url.parse( $(td[9]).find('a').attr('href'), true, false).query['query_id']);
+}
+
+ImpaladServer.prototype.getCompletedQueriesFromHtml = function($) {
+    var server = this;
+    var table_queries = $('table')[2];
+    var now = moment().valueOf();
+    var cq_this_iter = {};
+
+    $(table_queries).find('tr').each( function() {
+        var q = server.getCompletedQueryFromTr($, this);  // 'this' is a 'tr'
+        if ( q == null ) return;
+
+        var query_id = q.query_id;
+        if ( !(query_id in server.completed_queries) ) {
+            server.completed_queries_updating.push(q);
+        }
+        cq_this_iter[query_id] = q;
+
+    });
+
+    // remove obsolete cq
+    for (var qid in server.completed_queries) {
+        if (!(qid in cq_this_iter)) {
+            delete server.completed_queries[qid];
+        }
+    }
+
+    if (server.completed_queries_updating.length > 0) {
+        if (server.completed_queries_update_timer) {
+            console.log('WTF1? not finished yet?');
+            clearTimeout(server.completed_queries_update_timer);
+            server.completed_queries_update_timer = null;
+        }
+        server.completed_queries_update_timer =
+            setTimeout(server.lazyUpdateExecutionSummary.bind(server), 100);
+    }
+}
+
+ImpaladServer.prototype.lazyUpdateExecutionSummary = function() {
+    var server = this;
+    // console.log( 'completed query ' + query_id + ' / execution time ' + (q.end_time - q.start_time)/1000 + ' sec');
+    if (server.completed_queries_updating.length == 0) {
+        console.log('FATAL!!! ' + server.server_name + ' cqu length : 0');
+    }
+
+    server.completed_queries_update_timer = null;
+
+    var q = server.completed_queries_updating.shift();
+    var query_id = q.query_id;
+
+    var impala_version = server.cluster.cluster_options.impala_version;
+    var url_summary = 'http://' + server.server_name + ':' + server.web_port + '/';
+    switch (impala_version) {
+    case '2.0.0':
+        url_summary += 'query_summary?query_id=' + query_id;
+        break;
+    case '1.4.1':
+        url_summary += 'query_profile?query_id=' + query_id;
+        break;
+    default:
+        return;
+    }
+
+    needle.get(url_summary, { timeout: 1000 }, function (error, response) {
+        if (!error && response.statusCode == 200) {
+            // DEBUG TEST
+            var qid = url.parse(response.req.path, true, false).query['query_id'];
+            if (query_id != qid) {
+                console.log('FATAL ERROR!!! this shouldn\'t happen.');
+            }
+            server.getExecutionSummaryFromHtml( q, cheerio.load(response.body) );
+            // console.log('Completed Q : ' + query_id + '@' + server.server_name + ' // ' + server.cluster.cluster_name);
+        }
+        else {
+            if (error) {
+                if (error.code == 'ECONNRESET') {
+                    // try later
+                    server.completed_queries_updating.push(q);
+                    console.log('Completed Q : retrying ' + url_summary);
+                    setTimeout(server.lazyUpdateExecutionSummary.bind(server), 100);
+                    return;
+                }
+            }
+            q.summary = 'Error getting execution summary : \n' + (error? error.toString():response.statusCode) + ' : ' + url_summary;
+            console.log('Completed Q : ' + q.summary);
+        }
+        server.completed_queries[query_id] = q;
+        server.completed_queries_new.push(q);
+
+        if (server.completed_queries_updating.length > 0) {
+            if (server.completed_queries_update_timer) {
+                console.log('WTF1? not finished yet?');
+                clearTimeout(server.completed_queries_update_timer);
+                server.completed_queries_update_timer = null;
+            }
+            server.completed_queries_update_timer =
+                setTimeout(server.lazyUpdateExecutionSummary.bind(server), 50);
+        }
+        else {
+            var cq = [];
+            for (var idx=0; idx<server.completed_queries_new.length; idx++) {
+                var iq = server.completed_queries_new[idx];
+                cq.push({
+                    user: iq.user,
+                    default_db: iq.default_db,
+                    statement: iq.statement,
+                    query_type: iq.query_type,
+                    start_time: iq.start_time,
+                    end_time: iq.end_time,
+                    backend_progress: iq.backend_progress,
+                    state: iq.state,
+                    n_rows_fetched: iq.n_rows_fetched,
+                    query_id: iq.query_id,
+                    summary : iq.summary,
+                    server_name: iq.server.server_name,
+                    server_port: iq.server.web_port,
+                    server_state: iq.server.state,
+                });
+            }
+            // sendaway all completed queries gathered in this iteration.
+            datahub_client.send({
+                'type':'completed_queries',
+                'value': {
+                    'cluster': server.cluster.cluster_name,
+                    'completed_queries': cq
+                }
+            });
+            // clear
+            server.completed_queries_new = [];
+            // console.log('send_cq() c:' + server.cluster.cluster_name + ' s:' + server.server_name + ' cq:' + cq.length);
+        }
     });
 }
 
@@ -170,13 +361,15 @@ ImpalaCluster.prototype.finishUpdatingImpalad = function () {
         }
         serverlist.push({
             'server_name': server.server_name,
+            'server_port': server.web_port,
             'server_state': server.state
         });
     }
     cluster['cluster'] = { 'running_queries': running_queries, 'servers': serverlist };
 
     datahub_client.send( {'type':'cluster', 'value':cluster } );
-    // console.log('cluster ' + this.cluster_name + ' updated.')
+    console.log('cluster ' + this.cluster_name + ' updated. (' +
+        (moment().valueOf() - this.impalad_update_start_time) + 'ms)');
 }
 
 ImpaladServer.prototype.updateRunningQueries = function() {
@@ -188,10 +381,14 @@ ImpaladServer.prototype.updateRunningQueries = function() {
 
     var url = 'http://' + impalad.server_name + ':' + impalad.web_port + '/queries';
     // console.log('updating impalad jobs from', url);
-    needle.get(url, { timeout: 3000 }, function (error, response) {
+    needle.get(url, { timeout: 1000 }, function (error, response) {
         if (!error && response.statusCode == 200) {
-            var server = response.req._headers.host.split(':')[0];
-            impalad.getRunningQueriesFromHtml( cheerio.load(response.body) );
+            var $ = cheerio.load(response.body);
+            impalad.getRunningQueriesFromHtml( $ );
+            impalad.getCompletedQueriesFromHtml( $ )
+        }
+        else {
+            console.log('ERROR!! ' + (error? error.toString():response.statusCode) + ' [' + url + ']');
         }
         // finish update for this server
         impalad.cluster.finishUpdatingImpalad();
@@ -199,6 +396,12 @@ ImpaladServer.prototype.updateRunningQueries = function() {
 }
 
 ImpalaCluster.prototype.updateImpalad = function () {
+    if (this.impalad_updating>0) {
+        console.log('FUCK!!! ' + this.cluster_name + ' impalad update not finished yet... skipping this time');
+        return;
+    }
+
+    this.impalad_update_start_time = moment().valueOf();
     // this is safe only because impalad_servers has no prototype.
     this.impalad_updating = Object.keys(this.impalad_servers).length;
 
@@ -255,7 +458,7 @@ ImpalaCluster.prototype.updateImpaladList = function(new_impalad_list) {
             clearInterval(this.impalad_update_timer);
         }
         setTimeout( this.updateImpalad.bind(this), 0 );
-        this.impalad_update_timer = setInterval( this.updateImpalad.bind(this), this.cluster_options.impalad_update_interval | 5000 );
+        this.impalad_update_timer = setInterval( this.updateImpalad.bind(this), this.cluster_options.impalad_update_interval | 10000 );
     }
 }
 
@@ -297,7 +500,7 @@ ImpalaCluster.prototype.updateSubscribers = function() {
     var cluster = this;
     var opt = this.cluster_options;
     var url = 'http://' + opt.statestored_hostname + ':' + opt.statestored_web_port + '/subscribers';
-    needle.get(url, { timeout: 3000 }, function (error, response) {
+    needle.get(url, { timeout: 1000 }, function (error, response) {
         if (!error && response.statusCode == 200) {
             var servers = cluster.getServersFromHtml( cheerio.load(response.body) );
             cluster.statestored_state = 'online';

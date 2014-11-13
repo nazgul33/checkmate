@@ -4,12 +4,14 @@
     <title>Impala</title>
     <style type="text/css">
     @import '/static/css/iphc.css';
+    @import '/css/iphc.css';
     </style>
     <script src="/static/js/iphc.js"></script>
 </head>
 
 <script type="text/javascript">
 var g_running_queries = [];
+var g_completed_queries = [];
 var g_servers = [];
 var g_clusters = [];
 var g_current_cluster = '';
@@ -23,7 +25,7 @@ function loadServers() {
 
 function showRunningQueries() {
     var tNow = new Date();
-    var table = '<table class="table table-striped" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
+    var table = '<table class="table table-striped small" width="80%">\n<tr><th>server</th><th>User</th><th>Statement</th><th>Backend Progress</th><th>Start Time</th><th>Time spent</th></tr>\n';
 
     for (var i=0; i<g_running_queries.length; i++) {
         var q = g_running_queries[i];
@@ -33,15 +35,63 @@ function showRunningQueries() {
         table += '<tr' + tr_class + '><td>' + q.server_name + '</td><td>' + q.user + '</td><td>' + q.statement + '</td><td>' + q.backend_progress + '</td><td>' + formatDate(st) + '</td><td>' + timespent_ms + '</td></tr>\n';
     }
     table += '</table>';
-    $('#impala_queries').html(table);
+    $('#running_queries').html(table);
+}
+
+function setupCompletedQueriesSummary(me, i) {
+    if (i >= 0) {
+        var q = g_completed_queries[i];
+        var hover_text;
+        if (q.summary.length > 0) {
+            hover_text = '<pre style="background-color: #dde">' + q.summary + '</pre>';
+        }
+        else {
+            hover_text = '<pre style="background-color: #dde">No execution summary for this query.</pre>';
+        }
+
+        var tr_offset = $(me).offset();
+        var tr_height = $(me).innerHeight();
+        var my_offset = { 'top':tr_offset.top + tr_height, 'left':tr_offset.left + 200 };
+        $('#cq_summary')
+            // .offset( { 'top':tr_offset.top + 10, 'left':tr_offset.left + 200 } )
+            .offset( my_offset )
+            .html(hover_text)
+            .css("visibility", "visible");
+
+        console.log(i, my_offset, $('#cq_summary').offset());
+    }
+    else {
+        $('#cq_summary').css("visibility", "hidden");
+    }
+}
+
+function showCompletedQueries() {
+    var table = '<table class="table table-striped small" width="80%" onmouseout="setupCompletedQueriesSummary(this, -1);">\n<thead><tr><th>server</th><th>User</th><th>Query Type</th><th>Statement</th><th width="180">Start Time</th><th>Time spent</th></tr></thead>\n<tbody>\n';
+
+    for (var i=0; i<g_completed_queries.length; i++) {
+        var q = g_completed_queries[i];
+        var st = new Date(q.start_time);
+        var timespent_ms = q.end_time - q.start_time;
+        var tr_class = (q.stall == true)? ' class="stall"':'';
+        table += '<tr onmouseover="setupCompletedQueriesSummary(this, '+i+');"' + tr_class + '>';
+        table += '<td width="105">' + q.server_name + '</td><td>' + q.user + '</td><td>' + q.query_type + '</td><td>' + q.statement + '</td><td width="180">' + formatDate(st) + '</td><td>' + timespent_ms/1000 + '</td></tr>\n';
+    }
+    table += '</tbody></table>';
+    $('#completed_queries').html(table);
+    $('#completed_queries tbody tr').mouseover();
 }
 
 function showServers() {
-    var table = '<table class="table table-striped" width="80%">\n<tr><th>Server</th><th>Status</th></tr>\n';
-    for (var i=0; i<g_servers.length; i++) {
-        table += '<tr><td>' + g_servers[i].server_name + '</td><td>' + g_servers[i].server_state + '</td></tr>\n';
+    var table = '<table class="table table-bordered">\n';
+    var td_in_a_row = 1;
+    for (var r=0; r<g_servers.length; r+=td_in_a_row) {
+        table += '<tr>\n';
+        for (var i=r; i<g_servers.length && i<(r+td_in_a_row); i++) {
+            table += '<td class="' + g_servers[i].server_state + ' small"><a href="http://' + g_servers[i].server_name + ':' + g_servers[i].server_port + '/">' + g_servers[i].server_name + '</a></td>\n';
+        }
+        table += '</tr>\n';
     }
-    table += '</table>';
+    table += '</table>\n';
     $('#impala_servers').html(table);
 }
 
@@ -51,13 +101,21 @@ function loadCluster() {
             var cluster = result.value;
             g_running_queries = cluster.running_queries;
             g_servers = cluster.servers;
+            g_completed_queries = cluster.completed_queries;
 
             // sort arrays
-            g_running_queries.sort( function(a,b) { return a.start_time - b.start_time; } );
-            g_servers.sort( function(a,b) { return (a.server_name < b.server_name)? -1: ((a.server_name == b.server_name)? 0:1 ) } );
-
-            showRunningQueries();
-            showServers();
+            if (g_running_queries.length > 1) {
+                g_running_queries.sort( function(a,b) { return a.start_time - b.start_time; } );
+                showRunningQueries();
+            }
+            if (g_completed_queries.length > 1) {
+                g_completed_queries.sort( function(a,b) { return b.start_time - a.start_time; } );
+                showCompletedQueries();
+            }
+            if (g_servers.length > 1) {
+                g_servers.sort( function(a,b) { return (a.server_name < b.server_name)? -1: ((a.server_name == b.server_name)? 0:1 ) } );
+                showServers();
+            }
         }
     });
 }
@@ -95,16 +153,27 @@ $(function() {
 </script>
 
 <body>
-    <H1>clusters</H1>
-    <div id="clusters"></div>
+<div style="width: 100%; overflow: auto; ">
+    <!-- summery of completed query -->
+    <div class="boxtop" id="cq_summary"></div> 
+                <!-- position: absolute; -->
 
-    <H1>queries</H1>
-    <div id="impala_queries" align="center">
-    </div>
+    <div class="left">
+        <H3>clusters</H3>
+        <div id="clusters"></div>
 
-    <H1>servers</H1>
-    <div id="impala_servers" align="center">
+        <H3>servers</H3>
+        <div id="impala_servers"> </div>
     </div>
+    <div class="right">
+        <H2>in-flight queries</H2>
+        <div id="running_queries"> </div>
+
+        <H2>completed queries</H2>
+        <div id="completed_queries"> </div>
+    </div>
+    <!-- <div style="clear: both;"></div> -->
+</div>
 </body>
 
 </html>

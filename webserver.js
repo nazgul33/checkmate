@@ -25,7 +25,6 @@ var assetManagerGroups = {
         'files': [
             'bootstrap/css/bootstrap.min.css',
             'bootstrap/css/bootstrap-select.min.css',
-            'css/iphc.css',
         ],
         'preManipulate': {
             // Regexp to match user-agents including MSIE.
