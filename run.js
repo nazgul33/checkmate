@@ -39,30 +39,30 @@ else {
                     impala_version:'2.0.0',
                     statestored_hostname:"dicc-tm003",
                     statestored_web_port:25010,
-                    subscribers_update_interval:30000,
+                    subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:10000 },
+                    impalad_update_interval:30000 },
                 daas: {
                     impala_version:'1.4.1',
                     statestored_hostname:"dicc-m003",
                     statestored_web_port:25010,
-                    subscribers_update_interval:30000,
+                    subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:10000 },
+                    impalad_update_interval:30000 },
                 eda: {
                     impala_version:'1.4.1',
                     statestored_hostname:"dicc-m002",
                     statestored_web_port:25010,
-                    subscribers_update_interval:30000,
+                    subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:10000 },
+                    impalad_update_interval:30000 },
                 eda2: {
                     impala_version:'2.0.0',
                     statestored_hostname:"dicc-m004",
                     statestored_web_port:25010,
-                    subscribers_update_interval:30000,
+                    subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:10000 },
+                    impalad_update_interval:30000 },
             };
 
             impala.init( impala_cluster_descriptions );
