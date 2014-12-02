@@ -23,26 +23,30 @@ function showRunningQueries() {
     <th width="90px">server</th> \
     <th width="120px">User</th> \
     <th>Statement</th> \
+    <th width="60px">State</th> \
     <th width="80">Backend Progress</th> \
     <th width="130">Start Time</th> \
     <th width="60">Time spent</th> \
+    <th width="60">Cancel</th> \
     </tr></thead><tbody>\n';
 
     for (var i=0; i<g_running_queries.length; i++) {
         var q = g_running_queries[i];
         var st = new Date(q.start_time);
         var timespent_ms = tNow - st;
-        var tr_class = (q.stall == true)? ' class="stall"':'';
-        if (tr_class == '' && timespent_ms > 30000) {
-            tr_class = ' class="stall"';
+        var tr_class = (q.stall == true)? ' class="warning"':'';
+        if (q.stall == true && timespent_ms > 120000) {
+            tr_class = ' class="danger"';
         }
         table += '<tr' + tr_class +
-        '><td width="90px">' + q.server_name +
+        '><td width="90px"><a href="http://' + q.server_name + ':' + q.server_port + '">' + q.server_name + '</a>' +
         '</td><td width="120px">' + q.user +
         '</td><td>' + q.statement +
+        '</td><td width="60px">' + q.state +
         '</td><td width="80">' + q.backend_progress +
         '</td><td width="130">' + formatDate(st) +
-        '</td><td width="60">' + timespent_ms + '</td></tr>\n';
+        '</td><td width="60">' + timespent_ms + 
+        '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/cancel_query?query_id=' + q.query_id + '">Cancel</a></td></tr>\n';
     }
     table += '</tbody></table>';
     $('#running_queries').html(table);
@@ -81,6 +85,7 @@ function showCompletedQueries() {
     <th width="120px">User</th> \
     <th width="60px">Query Type</th> \
     <th>Statement</th> \
+    <th width="60px">State</th> \
     <th width="130px">Start Time</th> \
     <th width="60px">Time spent</th> \
     </tr></thead> \
@@ -93,10 +98,11 @@ function showCompletedQueries() {
 
         table += '<tr onmouseover="setupCompletedQueriesSummary(this, '+i+');">';
         table +=
-        '<td width="90px">' + q.server_name +
+        '<td width="90px"><a href="http://' + q.server_name + ':' + q.server_port + '">' + q.server_name + '</a>' +
         '</td><td width="120px">' + q.user +
         '</td><td width="60px">' + q.query_type +
         '</td><td>' + q.statement +
+        '</td><td width="60px">' + q.state +
         '</td><td width="130px">' + formatDate(st) +
         '</td><td width="60px">' + timespent_ms/1000 + '</td></tr>\n';
     }
@@ -174,6 +180,14 @@ function startRefreshTimer(cluster_name) {
 
 $(function() {
     loadClusters();
+    var qmarkidx = window.location.href.lastIndexOf('?');
+    if ( qmarkidx >= 0) {
+        var q = window.location.href.substring(qmarkidx+1);
+        qsplit = q.split('=');
+        if (qsplit.length == 2 && qsplit[0] == 'cluster') {
+            startRefreshTimer(qsplit[1]);
+        }
+    }
 });
 
 </script>

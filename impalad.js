@@ -3,6 +3,7 @@ var cheerio = require('cheerio')
 var url = require('url');
 var moment = require('moment');
 var datahub = require('./datahub.js');
+var mailSender = require('./mailSender.js');
 
 var datahub_client;
 // var needle_agent = { maxSockets: 4, sockets: {}, requests: {} };
@@ -113,6 +114,90 @@ ImpaladServer.prototype.getRunningQueryFromTr = function($, tr) {
                                     url.parse( $(td[8]).find('a').attr('href'), true, false).query['query_id']);
 }
 
+ImpaladServer.prototype.warningMailBody = function(newQ) {
+    var body = '<p>Checkmate detected a query taking too much time</p>\n';
+    body += '<p>Cluster: ' + this.cluster.cluster_name + '<br>\n';
+    body += 'Server: ' + this.server_name + '<br>\n';
+    body += 'Query: ' + newQ.statement + '<br>\n';
+    body += 'DB: ' + newQ.default_db + '<br>\n';
+    body += 'User: ' + newQ.user + '<br>\n';
+    body += 'Query Type' + newQ.query_type + '<br>\n';
+    body += 'Backend Progess: ' + newQ.backend_progress + '<br>\n';
+    body += 'Rows Fetched: ' + newQ.n_rows_fetched + '<br></p>\n';
+    body += 'Query running for: ' + ((moment().valueOf() - newQ.start_time)/1000) + '<br></p>\n';
+
+    body += '<p><a href="http://172.22.212.69:8080/impala/?cluster=' + this.cluster.cluster_name + '">Show Cluster</a><br>\n';
+    body += '<a href="http://' + this.server_name + ':' + this.web_port + '/query_profile?query_id=' + newQ.query_id + '">Query Profile</a><br>\n';
+
+    return body;
+}
+
+ImpaladServer.prototype.detectStalledQuery = function( query_id, newQ ) {
+    var server = this;
+    var now = moment().valueOf();
+    var oldQ = server.running_queries[query_id];
+
+    server.running_queries[query_id] = newQ;
+
+    // if newQ's runtime exceeds 1min, start detection.
+    if ( now - newQ.start_time < 60*1000 ) {
+        return;
+    }
+
+    switch (newQ.query_type.toUpperCase()) {
+        case 'QUERY':
+            if ( (oldQ.backend_progress == newQ.backend_progress) &&
+                (oldQ.n_rows_fetched == newQ.n_rows_fetched) ) {
+                console.log( '**** QUERY', query_id, 'no progress!' );
+                newQ.stall = true;
+            }
+            // queries taking over 2min
+            if ( now - newQ.start_time >= 2*60*1000 ) {
+                console.log( '**** QUERY', query_id, 'taking too long!' );
+                newQ.stall = true;
+            }
+            break;
+        case 'DDL':
+            if ( newQ.statement.toUpperCase().indexOf('REFRESH') == 0 ||
+                newQ.statement.toUpperCase().indexOf('INVALIDATE') == 0) {
+                // give more time : 5min
+                if ( now - newQ.start_time >= 5*60*1000 ) {
+                    console.log( '**** QUERY', query_id, 'taking too long!' );
+                    newQ.stall = true;
+                }
+            } else {
+                // queries taking over 2min
+                if ( now - newQ.start_time >= 2*60*1000 ) {
+                    console.log( '**** QUERY', query_id, 'taking too long!' );
+                    newQ.stall = true;
+                }
+            }
+            break;
+        default:
+            // queries taking over 2min
+            if ( now - newQ.start_time >= 2*60*1000 ) {
+                console.log( '**** QUERY', query_id, 'taking too long!' );
+                newQ.stall = true;
+            }
+            break;
+    }
+    if (oldQ.stall != newQ.stall) {
+        // send email notification
+        var mailbody = server.warningMailBody(newQ);
+        if ( server.cluster.cluster_options.mail_recipients ) {
+            mailSender(
+                server.cluster.cluster_options.mail_recipients,
+                'WARNING: Impala crippled? cluster ' + server.cluster.cluster_name,
+                mailbody,
+                null
+                );
+        }
+        // send sms notification
+        // log
+        console.log(mailbody);
+    }
+}
+
 ImpaladServer.prototype.getRunningQueriesFromHtml = function($) {
     var server = this;
     var table_queries = $('table')[0];
@@ -126,18 +211,14 @@ ImpaladServer.prototype.getRunningQueriesFromHtml = function($) {
         running_query.check = true;
         running_query.last_update = now;
         if ( query_id in server.running_queries ) {
-            console.log( 'existing query', query_id );
-            if ( (server.running_queries[query_id].backend_progress == running_query.backend_progress) &&
-                (server.running_queries[query_id].n_rows_fetched == running_query.n_rows_fetched) ) {
-                console.log( '**** QUERY', query_id, 'NO PROGRESS!' );
-                running_query.stall = true;
-            }
+            // console.log( 'existing query', query_id );
+            server.detectStalledQuery( query_id, running_query );
         }
         else {
             running_query.last_update = now;
             console.log( 'new query', query_id );
+            server.running_queries[query_id] = running_query;
         }
-        server.running_queries[query_id] = running_query;
     });
 }
 
@@ -176,15 +257,15 @@ ImpaladServer.prototype.getCompletedQueryFromTr = function($, tr) {
     }
 
     return new ImpalaCompletedQuery( this,
-                                    $(td[0]).text(),
-                                    $(td[1]).text(),
-                                    $(td[2]).text(),
-                                    $(td[3]).text(),
-                                    moment($(td[4]).text()).valueOf(),
-                                    moment($(td[5]).text()).valueOf(),
-                                    $(td[6]).text(),
-                                    $(td[7]).text(),
-                                    $(td[8]).text(),
+                                    $(td[0]).text().trim(),
+                                    $(td[1]).text().trim(),
+                                    $(td[2]).text().trim(),
+                                    $(td[3]).text().trim(),
+                                    moment($(td[4]).text().trim()).valueOf(),
+                                    moment($(td[5]).text().trim()).valueOf(),
+                                    $(td[6]).text().trim(),
+                                    $(td[7]).text().trim(),
+                                    $(td[8]).text().trim(),
                                     url.parse( $(td[9]).find('a').attr('href'), true, false).query['query_id']);
 }
 
@@ -197,6 +278,12 @@ ImpaladServer.prototype.getCompletedQueriesFromHtml = function($) {
     $(table_queries).find('tr').each( function() {
         var q = server.getCompletedQueryFromTr($, this);  // 'this' is a 'tr'
         if ( q == null ) return;
+        // ignore some alive check queries
+        if ( q.statement.toUpperCase().indexOf('HELLOJAEHA') == 0 ||
+            q.statement.toUpperCase().indexOf('SELECT 1') == 0 ) {
+            delete q;
+            return;
+        }
 
         var query_id = q.query_id;
         if ( !(query_id in server.completed_queries) ) {

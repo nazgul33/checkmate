@@ -34,6 +34,8 @@ else {
     case 'impala': 
         {
             var impala = require('./impalad.js');
+            var mail_recipient_list = [ 'taewook@sk.com', 'jungyup.lee@sk.com', 'steven.han@sk.com', 'gounna@sk.com'];
+            var sms_recipient_list = [ '01036875275', '01098954723', '01086807083', '01071578092' ];
             var impala_cluster_descriptions = {
                 test: {
                     impala_version:'2.0.0',
@@ -41,28 +43,36 @@ else {
                     statestored_web_port:25010,
                     subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:30000 },
+                    impalad_update_interval:30000,
+                    mail_recipients:mail_recipient_list,
+                    sms_recipients:sms_recipient_list },
                 daas: {
                     impala_version:'1.4.1',
                     statestored_hostname:"dicc-m003",
                     statestored_web_port:25010,
                     subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:30000 },
+                    impalad_update_interval:30000,
+                    mail_recipients:mail_recipient_list,
+                    sms_recipients:sms_recipient_list },
                 eda: {
                     impala_version:'1.4.1',
                     statestored_hostname:"dicc-m002",
                     statestored_web_port:25010,
                     subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:30000 },
+                    impalad_update_interval:30000,
+                    mail_recipients:mail_recipient_list,
+                    sms_recipients:sms_recipient_list },
                 eda2: {
                     impala_version:'2.0.0',
                     statestored_hostname:"dicc-m004",
                     statestored_web_port:25010,
                     subscribers_update_interval:60000,
                     impalad_web_port:25000,
-                    impalad_update_interval:30000 },
+                    impalad_update_interval:30000,
+                    mail_recipients:mail_recipient_list,
+                    sms_recipients:sms_recipient_list },
             };
 
             impala.init( impala_cluster_descriptions );
