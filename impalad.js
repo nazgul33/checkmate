@@ -114,14 +114,14 @@ ImpaladServer.prototype.getRunningQueryFromTr = function($, tr) {
                                     url.parse( $(td[8]).find('a').attr('href'), true, false).query['query_id']);
 }
 
-ImpaladServer.prototype.warningMailBody = function(newQ) {
-    var body = '<p>Checkmate detected a query taking too much time</p>\n';
+ImpaladServer.prototype.warningMailBody = function(newQ, msg) {
+	var body = '<p>' + msg + '</p>\n';
     body += '<p>Cluster: ' + this.cluster.cluster_name + '<br>\n';
     body += 'Server: ' + this.server_name + '<br>\n';
     body += 'Query: ' + newQ.statement + '<br>\n';
     body += 'DB: ' + newQ.default_db + '<br>\n';
     body += 'User: ' + newQ.user + '<br>\n';
-    body += 'Query Type' + newQ.query_type + '<br>\n';
+    body += 'Query Type: ' + newQ.query_type + '<br>\n';
     body += 'Backend Progess: ' + newQ.backend_progress + '<br>\n';
     body += 'Rows Fetched: ' + newQ.n_rows_fetched + '<br></p>\n';
     body += 'Query running for: ' + ((moment().valueOf() - newQ.start_time)/1000) + '<br></p>\n';
@@ -136,61 +136,63 @@ ImpaladServer.prototype.detectStalledQuery = function( query_id, newQ ) {
     var server = this;
     var now = moment().valueOf();
     var oldQ = server.running_queries[query_id];
+    var timeout = 3*60*1000; // 3min default;
+    var progress_stall_timeout = 2*60*1000;
+    var refresh_timeout = 5*60*1000;
+    var longer_timeout = 15*60*1000;
+    var msg = 'Checkmate detected a query running slowly.';
 
     server.running_queries[query_id] = newQ;
 
-    // if newQ's runtime exceeds 1min, start detection.
-    if ( now - newQ.start_time < 60*1000 ) {
-        return;
-    }
-
     switch (newQ.query_type.toUpperCase()) {
         case 'QUERY':
+        case 'DML':
             if ( (oldQ.backend_progress == newQ.backend_progress) &&
                 (oldQ.n_rows_fetched == newQ.n_rows_fetched) ) {
-                console.log( '**** QUERY', query_id, 'no progress!' );
-                newQ.stall = true;
+                if (oldQ.stall_progress_detection_time) {
+                    // second time or more time seen
+                    if (now - oldQ.stall_progress_time >= progress_stall_timeout) {
+                        console.log( '**** QUERY/DML', query_id, 'no progress for long time.' );
+                        newQ.stall = true;
+                        newQ.stall_progress_detection_time = oldQ.stall_progress_detection_time;
+                        msg = 'Checkmate detected a query showing no progress for ' + progress_stall_timeout/1000 + ' seconds';
+                    }
+                }
+                else {
+                    // first time seen
+                    newQ.stall_progress_detection_time = now;
+                }
             }
-            // queries taking over 2min
-            if ( now - newQ.start_time >= 2*60*1000 ) {
-                console.log( '**** QUERY', query_id, 'taking too long!' );
-                newQ.stall = true;
-            }
+            timeout = longer_timeout;
             break;
         case 'DDL':
             if ( newQ.statement.toUpperCase().indexOf('REFRESH') == 0 ||
                 newQ.statement.toUpperCase().indexOf('INVALIDATE') == 0) {
                 // give more time : 5min
-                if ( now - newQ.start_time >= 5*60*1000 ) {
-                    console.log( '**** QUERY', query_id, 'taking too long!' );
-                    newQ.stall = true;
-                }
-            } else {
-                // queries taking over 2min
-                if ( now - newQ.start_time >= 2*60*1000 ) {
-                    console.log( '**** QUERY', query_id, 'taking too long!' );
-                    newQ.stall = true;
-                }
+                timeout = refresh_timeout;
             }
             break;
         default:
-            // queries taking over 2min
-            if ( now - newQ.start_time >= 2*60*1000 ) {
-                console.log( '**** QUERY', query_id, 'taking too long!' );
-                newQ.stall = true;
-            }
             break;
     }
+
+    if ( now - newQ.start_time >= timeout ) {
+        console.log( '**** QUERY', query_id, 'taking too long!' );
+        newQ.stall = true;
+    }
+
     if (oldQ.stall != newQ.stall) {
         // send email notification
-        var mailbody = server.warningMailBody(newQ);
+        var mailbody = server.warningMailBody(newQ, msg);
         if ( server.cluster.cluster_options.mail_recipients ) {
-            mailSender(
-                server.cluster.cluster_options.mail_recipients,
-                'WARNING: Impala crippled? cluster ' + server.cluster.cluster_name,
-                mailbody,
-                null
-                );
+            setImmediate(function() {
+                mailSender(
+                    server.cluster.cluster_options.mail_recipients,
+                    'WARNING: Impala crippled? cluster ' + server.cluster.cluster_name,
+                    mailbody,
+                    null
+                    );
+            });
         }
         // send sms notification
         // log
@@ -389,7 +391,7 @@ ImpaladServer.prototype.getExecutionSummary = function(next) {
         }
         server.completed_queries[query_id] = q;
         server.completed_queries_new.push(q);
-        setTimeout(next, 300);
+        setTimeout(next, 100);
     });
 }
 
@@ -449,7 +451,7 @@ ImpalaCluster.prototype.finishUpdatingImpalad = function () {
         (moment().valueOf() - this.impalad_update_start_time) + 'ms)');
 }
 
-ImpaladServer.prototype.updateRunningQueries = function(next) {
+ImpaladServer.prototype.updateRunningQueries = function() {
     var impalad = this;
     var startTime = moment().valueOf();
     // clear check field for all running queries
@@ -472,7 +474,6 @@ ImpaladServer.prototype.updateRunningQueries = function(next) {
         }
 
         impalad.cluster.impalad_updating_jobs--;
-        next();
     });
 }
 
@@ -484,13 +485,14 @@ ImpalaCluster.prototype.updateImpalad = function () {
     }
 
     // multi process!!
-    while (this.impalad_updating_jobs < 4 && this.impalad_updating.length > 0) {
+    while (this.impalad_updating_jobs < 10 && this.impalad_updating.length > 0) {
         var impalad = this.impalad_updating.shift();
 
         this.impalad_updating_jobs++;
         // update running queries connecting impalad's web interface
-        impalad.updateRunningQueries(this.updateImpalad.bind(this));
+        impalad.updateRunningQueries();
     }
+    setTimeout(this.updateImpalad.bind(this), 100);
 }
 
 ImpalaCluster.prototype.initiateImpaladUpdate = function () {
@@ -554,7 +556,7 @@ ImpalaCluster.prototype.updateImpaladList = function(new_impalad_list) {
         if (this.impalad_update_timer) {
             clearInterval(this.impalad_update_timer);
         }
-        setTimeout( this.initiateImpaladUpdate.bind(this), 0 );
+        setImmediate( this.initiateImpaladUpdate.bind(this) );
         this.impalad_update_timer = setInterval( this.initiateImpaladUpdate.bind(this), this.cluster_options.impalad_update_interval | 10000 );
     }
 }
@@ -615,7 +617,7 @@ ImpalaCluster.prototype.startUpdating = function() {
     if (this.statestored_update_timer) {
         clearInterval(this.statestored_update_timer);
     }
-    setTimeout( this.updateSubscribers.bind(this), 0 );
+    setImmediate( this.updateSubscribers.bind(this) );
     this.statestored_update_timer = setInterval( this.updateSubscribers.bind(this), this.cluster_options.subscribers_update_interval | 30000 );
 }
 

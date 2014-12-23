@@ -27,6 +27,7 @@ function showRunningQueries() {
     <th width="80">Backend Progress</th> \
     <th width="130">Start Time</th> \
     <th width="60">Time spent</th> \
+    <th width="60">Profile</th> \
     <th width="60">Cancel</th> \
     </tr></thead><tbody>\n';
 
@@ -46,6 +47,7 @@ function showRunningQueries() {
         '</td><td width="80">' + q.backend_progress +
         '</td><td width="130">' + formatDate(st) +
         '</td><td width="60">' + timespent_ms + 
+        '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/query_profile?query_id=' + q.query_id + '">Profile</a>';
         '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/cancel_query?query_id=' + q.query_id + '">Cancel</a></td></tr>\n';
     }
     table += '</tbody></table>';
@@ -88,6 +90,7 @@ function showCompletedQueries() {
     <th width="60px">State</th> \
     <th width="130px">Start Time</th> \
     <th width="60px">Time spent</th> \
+    <th width="60">Profile</th> \
     </tr></thead> \
     <tbody>\n';
 
@@ -104,7 +107,8 @@ function showCompletedQueries() {
         '</td><td>' + q.statement +
         '</td><td width="60px">' + q.state +
         '</td><td width="130px">' + formatDate(st) +
-        '</td><td width="60px">' + timespent_ms/1000 + '</td></tr>\n';
+        '</td><td width="60px">' + timespent_ms/1000 +
+        '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/query_profile?query_id=' + q.query_id + '">Profile</a></td></tr>\n';
     }
     table += '</tbody></table>';
     $('#completed_queries').html(table);
