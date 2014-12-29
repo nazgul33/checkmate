@@ -1,3 +1,5 @@
+var ___str___ = require('./string.js');
+
 exports.extend = (function() {
     var toString = Object.prototype.toString,
     obj = '[object Object]';
@@ -28,3 +30,9 @@ exports.extend = (function() {
         return target;
     };
 })();
+
+if (typeof String.prototype.endsWith !== 'function') {
+    String.prototype.endsWith = function(suffix) {
+        return this.indexOf(suffix, this.length - suffix.length) !== -1;
+    };
+}

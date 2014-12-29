@@ -47,7 +47,7 @@ function showRunningQueries() {
         '</td><td width="80">' + q.backend_progress +
         '</td><td width="130">' + formatDate(st) +
         '</td><td width="60">' + timespent_ms + 
-        '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/query_profile?query_id=' + q.query_id + '">Profile</a>';
+        '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/query_profile?query_id=' + q.query_id + '">Profile</a>' +
         '</td><td width="60"><a href="http://' + q.server_name + ':' + q.server_port + '/cancel_query?query_id=' + q.query_id + '">Cancel</a></td></tr>\n';
     }
     table += '</tbody></table>';
@@ -163,7 +163,8 @@ function loadClusters() {
             g_clusters = result.value;
             for (var i=0; i<g_clusters.length; i++) {
                 var c = g_clusters[i];
-                links += '<button onclick="startRefreshTimer(\'' + c + '\')">' + c +'</button>&nbsp;';
+                // links += '<button onclick="startRefreshTimer(\'' + c + '\')">' + c +'</button>&nbsp;';
+                links += '<a href="/impala?cluster='+c+'">'+c+'</a><br>\n';
             }
             $('#clusters').html(links);
 

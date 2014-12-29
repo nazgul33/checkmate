@@ -1,3 +1,4 @@
+var utils = require('./utils.js');
 var needle = require('needle');
 var cheerio = require('cheerio')
 var url = require('url');
@@ -202,8 +203,24 @@ ImpaladServer.prototype.detectStalledQuery = function( query_id, newQ ) {
 
 ImpaladServer.prototype.getRunningQueriesFromHtml = function($) {
     var server = this;
-    var table_queries = $('table')[0];
+
+    // find a table listing "queries in flight"
+    var h3s = $('h3', '.container');
+    var table_queries = null;
     var now = moment().valueOf();
+
+    for (i=0; i<h3s.length; i++) {
+        if ( $(h3s[i]).text().endsWith('queries in flight') ) {
+            table_queries = $('table', '.container')[i];
+            break;
+        }
+    }
+
+    if (table_queries == null) {
+        console.log('CRITICAL ERROR: can\'t find running queries table');
+        return;
+    }
+
     // process queries
     $(table_queries).find('tr').each( function() {
         var running_query = server.getRunningQueryFromTr($, this);  // 'this' is a 'tr'
@@ -273,8 +290,24 @@ ImpaladServer.prototype.getCompletedQueryFromTr = function($, tr) {
 
 ImpaladServer.prototype.getCompletedQueriesFromHtml = function($) {
     var server = this;
-    var table_queries = $('table')[2];
+
+    // find a table listing "queries in flight"
+    var h3s = $('h3', '.container');
+    var table_queries = null;
     var now = moment().valueOf();
+
+    for (i=0; i<h3s.length; i++) {
+        if ( $(h3s[i]).text().endsWith('Completed Queries') ) {
+            table_queries = $('table', '.container')[i];
+            break;
+        }
+    }
+
+    if (table_queries == null) {
+        console.log('CRITICAL ERROR: can\'t find completed queries table');
+        return;
+    }
+
     var cq_this_iter = {};
 
     $(table_queries).find('tr').each( function() {
